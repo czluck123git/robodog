@@ -6,6 +6,7 @@ import queue
 import pygame
 from pynput import keyboard
 from robodog import Dog, UserMode
+from robodog.factory_actions import FactoryActions, FactoryAction
 import sys
 import os
 
@@ -19,9 +20,19 @@ except ImportError:
     SimplePose = None
 
 class RobodogUnifiedGUI:
+    """机器狗统一控制GUI"""
+    
+    # 从动作列表中过滤掉的动作类别：空翻类、前后左右站立类、撒娇、跳跃类
+    FACTORY_EXCLUDED_ACTIONS = {
+        'Back flip', 'Front flip', 'Left flip', 'Right flip',
+        'Back stand', 'Front stand', 'Left stand', 'Right stand',
+        'Coax',
+        'Jump', 'Jump round', 'Jump forward',
+    }
+    
     def __init__(self):
         # 连接参数
-        self.host = '192.168.118.29'
+        self.host = '192.168.101.215'
         self.dog = None
         self.connected = False
         self.running = False
@@ -51,6 +62,15 @@ class RobodogUnifiedGUI:
         self.dance_executor = DanceExecutor() if DanceExecutor else None
         self.is_dancing = False
         self.dance_thread = None
+        
+        # 原厂动作功能
+        self.factory_actions = None          # FactoryActions 实例(连接后创建)
+        self.factory_actions_list = []       # 从机器人获取的动作列表
+        self.factory_display_map = {}        # 显示文本 -> FactoryAction
+        self.factory_action_running = False  # 是否有动作正在执行
+        self.factory_action_thread = None
+        self._factory_last_progress = -1.0   # 进度显示节流
+        self._factory_last_progress_time = 0.0
         
         # 当前状态
         self.current_vx = 0.0
@@ -141,6 +161,7 @@ class RobodogUnifiedGUI:
         self.setup_gamepad_area()
         self.setup_gui_buttons_area()
         self.setup_dance_area()  # 新增跳舞区域
+        self.setup_factory_actions_area()  # 新增原厂动作区域
         self.setup_status_area()
         
         # 设置键盘事件
@@ -415,6 +436,93 @@ class RobodogUnifiedGUI:
         self.current_action_label = ttk.Label(control_frame, text="", foreground="blue")
         self.current_action_label.pack(side="right")
     
+    def setup_factory_actions_area(self):
+        """设置原厂动作区域"""
+        factory_frame = ttk.LabelFrame(self.main_frame, text="🏭 原厂动作 (机器人内置)", padding="10")
+        factory_frame.pack(fill="x", pady=(0, 10))
+        
+        # 常用动作中文名映射
+        self.factory_action_zh = {
+            'EStop': '紧急停止',
+            'Wake': '唤醒/站立',
+            'Soft stop': '缓停',
+            'Get down': '趴下',
+            'Recovery stand': '恢复站立',
+            'Move': '移动',
+            'Sit down': '坐下',
+            'Sway': '摇摆',
+            'Kick': '踢腿',
+            'Pee': '撒尿',
+            'Shake hand': '握手',
+            'Knock': '敲门',
+            'Lift leg': '抬腿',
+            'Dynamic dance': '动态舞蹈',
+            'Adjust center of mass': '调整重心',
+            'Joints action': '关节动作',
+            'rest': '休息',
+            'straight_sit': '标准坐姿',
+            'sprawl': '伸展趴',
+            'flatten': '贴地平躺',
+            'recovery_straight_sit': '恢复坐姿',
+        }
+        
+        # 顶部：刷新按钮 + 状态
+        top_frame = ttk.Frame(factory_frame)
+        top_frame.pack(fill="x", pady=(0, 8))
+        
+        ttk.Button(top_frame, text="刷新动作列表",
+                  command=self.refresh_factory_actions).pack(side="left", padx=(0, 10))
+        
+        self.factory_status_label = ttk.Label(top_frame, text="状态: 未连接，请先连接机器狗")
+        self.factory_status_label.pack(side="left")
+        
+        # 中部：动作选择 + 执行/停止
+        select_frame = ttk.Frame(factory_frame)
+        select_frame.pack(fill="x", pady=(0, 8))
+        
+        ttk.Label(select_frame, text="选择动作:", font=("Arial", 10, "bold")).pack(side="left", padx=(0, 10))
+        
+        self.factory_action_var = tk.StringVar()
+        self.factory_combo = ttk.Combobox(select_frame, textvariable=self.factory_action_var,
+                                          state="readonly", width=42)
+        self.factory_combo.pack(side="left", padx=(0, 10))
+        self.factory_combo.bind('<Return>', lambda e: self.execute_factory_action())
+        
+        self.factory_exec_btn = ttk.Button(select_frame, text="执行动作",
+                                          command=self.execute_factory_action)
+        self.factory_exec_btn.pack(side="left", padx=(0, 5))
+        
+        self.factory_stop_btn = ttk.Button(select_frame, text="停止动作",
+                                          command=self.stop_factory_action, state="disabled")
+        self.factory_stop_btn.pack(side="left")
+        
+        # 底部：常用快捷动作按钮
+        quick_frame = ttk.Frame(factory_frame)
+        quick_frame.pack(fill="x")
+        
+        ttk.Label(quick_frame, text="快捷动作:", font=("Arial", 10, "bold")).pack(side="left", padx=(0, 10))
+        
+        # 常用动作(ID为原厂固定值): (中文名, action_id)
+        self.factory_quick_actions = [
+            ('唤醒', 1),
+            ('坐下', 5),
+            ('趴下', 2),
+            ('恢复站立', 3),
+            ('摇摆', 273),
+            ('握手', 514),
+            ('动态舞蹈', 625),
+        ]
+        for name, aid in self.factory_quick_actions:
+            ttk.Button(quick_frame, text=name, width=8,
+                      command=lambda a=aid, n=name: self.execute_factory_action(FactoryAction(a, n))).pack(side="left", padx=(0, 5))
+    
+    def get_factory_display_name(self, action):
+        """获取动作的显示名称"""
+        zh = self.factory_action_zh.get(action.name, '')
+        if zh:
+            return f"{zh} {action.name} (ID:{action.action_id})"
+        return f"{action.name} (ID:{action.action_id})"
+    
     def setup_status_area(self):
         """设置状态显示和控制区域"""
         status_frame = ttk.LabelFrame(self.main_frame, text="📊 状态监控与控制", padding="10")
@@ -679,7 +787,14 @@ class RobodogUnifiedGUI:
             self.update_connection_indicator(True)
             self.start_btn.configure(state="normal")
             
-            self.log_message("✓ 成功连接到机器狗")
+            # 初始化原厂动作接口并自动获取动作列表
+            try:
+                self.factory_actions = FactoryActions(self.dog._client.client)
+                self.log_message("✓ 成功连接到机器狗")
+                self.refresh_factory_actions()
+            except Exception as e:
+                self.factory_actions = None
+                self.log_message(f"✓ 成功连接到机器狗 (原厂动作接口初始化失败: {e})")
             
         except Exception as e:
             self.log_message(f"✗ 连接失败: {e}")
@@ -688,6 +803,15 @@ class RobodogUnifiedGUI:
     def disconnect_from_dog(self):
         """断开机器狗连接"""
         self.stop_control()
+        
+        # 取消正在执行的原厂动作
+        if self.factory_actions and self.factory_action_running:
+            try:
+                self.factory_actions.cancel()
+            except:
+                pass
+        self.factory_action_running = False
+        self.factory_actions = None
         
         if self.dog:
             try:
@@ -706,6 +830,15 @@ class RobodogUnifiedGUI:
         self.connection_status_label.configure(text="未连接")
         self.update_connection_indicator(False)
         self.start_btn.configure(state="disabled")
+        
+        # 重置原厂动作区域
+        self.factory_actions_list = []
+        self.factory_display_map = {}
+        self.factory_combo.configure(values=[])
+        self.factory_action_var.set("")
+        self.factory_exec_btn.configure(state="normal")
+        self.factory_stop_btn.configure(state="disabled")
+        self.factory_status_label.configure(text="状态: 未连接，请先连接机器狗")
         
         self.log_message("已断开机器狗连接")
     
@@ -940,6 +1073,11 @@ class RobodogUnifiedGUI:
     def on_closing(self):
         """窗口关闭事件"""
         self.stop_control()
+        if self.factory_actions and self.factory_action_running:
+            try:
+                self.factory_actions.cancel()
+            except:
+                pass
         if self.connected:
             self.disconnect_from_dog()
         if self.keyboard_listener:
@@ -1083,6 +1221,150 @@ class RobodogUnifiedGUI:
         finally:
             # 确保停止跳舞
             self.root.after(0, self.stop_dance_action)
+    
+    # 原厂动作相关方法
+    def refresh_factory_actions(self):
+        """刷新原厂动作列表（在后台线程中获取，避免界面卡顿）"""
+        if not self.connected or not self.dog:
+            messagebox.showwarning("警告", "请先连接机器狗")
+            return
+        if not self.factory_actions:
+            messagebox.showwarning("警告", "原厂动作接口未初始化")
+            return
+        
+        self.factory_status_label.configure(text="状态: 正在获取动作列表...")
+        threading.Thread(target=self._load_factory_actions, daemon=True).start()
+    
+    def _load_factory_actions(self):
+        """后台线程：从机器人获取原厂动作列表并更新下拉框"""
+        try:
+            actions = self.factory_actions.get_available_actions(timeout=5.0)
+            total = len(actions)
+            actions = self._filter_factory_actions(actions)
+            self.factory_actions_list = actions
+            self.root.after(0, lambda: self._update_factory_combo(actions))
+            removed = total - len(actions)
+            self.log_message(
+                f"🏭 获取到 {len(actions)} 个原厂动作"
+                + (f" (已过滤 {removed} 个)" if removed else ""))
+        except Exception as e:
+            self.root.after(0, lambda: self.factory_status_label.configure(
+                text="状态: 获取动作列表失败"))
+            self.log_message(f"❌ 获取原厂动作列表失败: {e}")
+    
+    def _filter_factory_actions(self, actions):
+        """过滤掉不希望显示的动作类别（空翻/前后左右站立/撒娇/跳跃）"""
+        return [a for a in actions if a.name not in self.FACTORY_EXCLUDED_ACTIONS]
+    
+    def _update_factory_combo(self, actions):
+        """更新原厂动作下拉框"""
+        displays = []
+        self.factory_display_map = {}
+        for action in actions:
+            display = self.get_factory_display_name(action)
+            displays.append(display)
+            self.factory_display_map[display] = action
+        self.factory_combo.configure(values=displays)
+        if displays:
+            self.factory_combo.current(0)
+            self.factory_status_label.configure(text=f"状态: 准备就绪 (共{len(actions)}个动作)")
+        else:
+            self.factory_status_label.configure(text="状态: 机器人未报告可用动作")
+    
+    def execute_factory_action(self, action=None):
+        """执行原厂动作
+        参数:
+            action: FactoryAction 实例，为 None 时从下拉框选择
+        """
+        if not self.connected or not self.dog:
+            messagebox.showwarning("警告", "请先连接机器狗")
+            return
+        
+        if not self.factory_actions:
+            messagebox.showerror("错误", "原厂动作接口未初始化，请重新连接")
+            return
+        
+        if self.factory_action_running:
+            messagebox.showwarning("警告", "已有动作正在执行，请先停止")
+            return
+        
+        # 解析要执行的动作
+        if action is None:
+            display = self.factory_action_var.get()
+            action = self.factory_display_map.get(display)
+            if not action:
+                messagebox.showwarning("警告", "请先选择要执行的动作")
+                return
+        
+        # 如果控制循环在运行，先停止，避免速度指令干扰动作
+        if self.running:
+            self.stop_control()
+        
+        self.factory_action_running = True
+        self._factory_last_progress = -1.0
+        self.factory_exec_btn.configure(state="disabled")
+        self.factory_stop_btn.configure(state="normal")
+        self.factory_status_label.configure(
+            text=f"状态: 正在执行 {self.get_factory_display_name(action)}")
+        
+        self.factory_action_thread = threading.Thread(
+            target=self._run_factory_action, args=(action,), daemon=True)
+        self.factory_action_thread.start()
+        
+        self.log_message(f"🏭 开始执行原厂动作: {self.get_factory_display_name(action)}")
+    
+    def _run_factory_action(self, action):
+        """后台线程：发送动作目标并等待执行结果"""
+        display_name = self.get_factory_display_name(action)
+        try:
+            result_code, status_text = self.factory_actions.run_action(
+                action.action_id,
+                feedback_cb=lambda p: self.root.after(
+                    0, self._update_factory_progress, display_name, p),
+            )
+            if result_code == 0:
+                self.log_message(f"✅ 原厂动作完成: {display_name} ({status_text})")
+            else:
+                self.log_message(f"⚠️ 原厂动作结束: {display_name} (result={result_code}, {status_text})")
+        except Exception as e:
+            self.log_message(f"❌ 原厂动作执行失败: {display_name} - {e}")
+        finally:
+            # 仅当本线程仍是当前执行线程时重置UI，避免旧线程干扰新动作
+            if self.factory_action_thread is threading.current_thread():
+                self.factory_action_running = False
+                self.root.after(0, self._reset_factory_action_ui)
+    
+    def _update_factory_progress(self, display_name, progress):
+        """更新动作执行进度显示（节流，最多每0.5秒更新一次）"""
+        now = time.time()
+        if progress == self._factory_last_progress:
+            return
+        if now - self._factory_last_progress_time < 0.5 and progress < 1.0:
+            return
+        self._factory_last_progress = progress
+        self._factory_last_progress_time = now
+        self.factory_status_label.configure(
+            text=f"状态: 正在执行 {display_name} ({progress * 100:.0f}%)")
+    
+    def _reset_factory_action_ui(self):
+        """重置原厂动作区域UI状态"""
+        self.factory_exec_btn.configure(state="normal")
+        self.factory_stop_btn.configure(state="disabled")
+        total = len(self.factory_actions_list)
+        self.factory_status_label.configure(
+            text=f"状态: 准备就绪 (共{total}个动作)" if total else "状态: 准备就绪")
+    
+    def stop_factory_action(self):
+        """停止当前正在执行的原厂动作"""
+        if not self.factory_actions or not self.factory_action_running:
+            return
+        try:
+            if self.factory_actions.cancel():
+                self.log_message("🛑 已发送原厂动作取消请求")
+            else:
+                self.log_message("ℹ️ 当前没有正在执行的原厂动作")
+        except Exception as e:
+            self.log_message(f"❌ 取消原厂动作失败: {e}")
     
     def _reset_dog_pose(self):
         """重置机器狗姿态到默认状态"""
