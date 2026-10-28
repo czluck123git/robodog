@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "properties": {
+    "height_m": {
+      "type": "number",
+      "minimum": 0.09,
+      "maximum": 0.35,
+      "description": "机体高度(米)"
+    }
+  },
+  "required": ["height_m"]
+}

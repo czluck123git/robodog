@@ -6,7 +6,7 @@ import queue
 import pygame
 from pynput import keyboard
 from robodog import Dog, UserMode
-from robodog.factory_actions import FactoryActions, FactoryAction
+from robodog.factory_actions import FactoryActions, FactoryAction, EXCLUDED_ACTIONS
 import sys
 import os
 
@@ -23,12 +23,7 @@ class RobodogUnifiedGUI:
     """机器狗统一控制GUI"""
     
     # 从动作列表中过滤掉的动作类别：空翻类、前后左右站立类、撒娇、跳跃类
-    FACTORY_EXCLUDED_ACTIONS = {
-        'Back flip', 'Front flip', 'Left flip', 'Right flip',
-        'Back stand', 'Front stand', 'Left stand', 'Right stand',
-        'Coax',
-        'Jump', 'Jump round', 'Jump forward',
-    }
+    FACTORY_EXCLUDED_ACTIONS = EXCLUDED_ACTIONS
     
     def __init__(self):
         # 连接参数

@@ -24,6 +24,14 @@ GOAL_STATUS_TEXT = {
     9: 'LOST',
 }
 
+# 默认过滤掉的动作类别：空翻类、前后左右站立类、撒娇、跳跃类
+EXCLUDED_ACTIONS = frozenset({
+    'Back flip', 'Front flip', 'Left flip', 'Right flip',
+    'Back stand', 'Front stand', 'Left stand', 'Right stand',
+    'Coax',
+    'Jump', 'Jump round', 'Jump forward',
+})
+
 
 @dataclass
 class FactoryAction:

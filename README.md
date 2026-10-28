@@ -171,7 +171,8 @@ The `examples` directory contains comprehensive demonstrations:
 2. **`demo_advanced_movement.py`** - Advanced motion parameters and gait control
 3. **`demo_modes.py`** - User mode switching and state management
 4. **`keyboard_control.py`** - Real-time keyboard control interface
-5. **`test.py`** - System testing and validation
+5. **`agent_skills_demo.py`** - Agent-callable skills (movement + factory actions)
+6. **`test.py`** - System testing and validation
 
 ### Running Examples
 
@@ -188,7 +189,48 @@ python keyboard_control.py
 
 # Run advanced movement demo
 python demo_advanced_movement.py
+
+# Run agent skills demo (LLM-callable skills)
+python agent_skills_demo.py
 ```
+
+### Agent Skills (LLM Integration)
+
+The `robodog.agent_skills` module wraps basic movement and factory actions as
+Agent-callable skills, organized in the `skills/` directory following the
+OpenClaw / Codex skill convention — each skill is a folder with `SKILL.md`
+(name/description frontmatter), `schema.json` (parameter schema) and
+`skill.py` (implementation). Schemas can be registered directly with LLM
+tool-calling frameworks (e.g., OpenAI Function Calling):
+
+```python
+from robodog.agent_skills import AgentSkills
+
+skills = AgentSkills.connect('192.168.101.215')
+
+# Register schemas with your LLM tool list
+schemas = skills.list_skills()
+
+# Call skills by name (synchronous, returns JSON-serializable dict)
+result = skills.call('move', direction='forward', speed=0.5, duration=2)
+result = skills.call('run-factory-action', action='Shake hand')
+result = skills.call('stop-movement')
+```
+
+Also callable from the command line:
+
+```bash
+python -m robodog.skill_cli list
+python -m robodog.skill_cli move direction=forward speed=0.5 duration=2
+```
+
+Available skills: `move`, `turn`, `set-velocity`, `stop-movement`,
+`set-body-height`, `set-user-mode`, `reset-posture`, `get-robot-status`,
+`list-factory-actions`, `run-factory-action`, `cancel-factory-action`.
+See `skills/README.md` for the full skill documentation.
+
+Dangerous factory actions (flips, stands, coax, jumps) are filtered by default;
+pass `filter_dangerous=False` to disable.
 
 ### Keyboard Control
 
@@ -209,6 +251,8 @@ The keyboard control example provides real-time control:
 - **`UserMode`**: Robot operation modes (IDLE, TROT, etc.)
 - **`DogController`**: Low-level parameter control
 - **`ROSClient`**: ROS communication handler
+- **`FactoryActions`**: Built-in factory action execution (sit, shake hand, dance, etc.)
+- **`AgentSkills`**: Agent/LLM-callable skill registry (movement + factory actions)
 
 ### Key Methods
 

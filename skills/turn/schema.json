@@ -1,0 +1,23 @@
+{
+  "type": "object",
+  "properties": {
+    "direction": {
+      "type": "string",
+      "enum": ["left", "right"],
+      "description": "转向方向"
+    },
+    "speed": {
+      "type": "number",
+      "minimum": 0.1,
+      "maximum": 2.0,
+      "description": "转向速度(rad/s)"
+    },
+    "duration": {
+      "type": "number",
+      "minimum": 0.1,
+      "maximum": 10.0,
+      "description": "转向时长(秒)"
+    }
+  },
+  "required": ["direction", "speed", "duration"]
+}

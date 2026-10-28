@@ -39,6 +39,10 @@ class CtrlState(StateManager):
     gait: int = 0
     standing: bool = False
 
+    def __post_init__(self):
+        # dataclass 生成的 __init__ 不会调用基类 __init__，需手动初始化
+        StateManager.__init__(self)
+
 @dataclass
 class BodyStatus(StateManager):
     """Body status data class"""
@@ -57,3 +61,7 @@ class BodyStatus(StateManager):
     ax: float = 0.0
     ay: float = 0.0
     az: float = 0.0
+
+    def __post_init__(self):
+        # dataclass 生成的 __init__ 不会调用基类 __init__，需手动初始化
+        StateManager.__init__(self)

@@ -1,0 +1,24 @@
+{
+  "type": "object",
+  "properties": {
+    "vx": {
+      "type": "number",
+      "minimum": -4.0,
+      "maximum": 4.0,
+      "description": "前后速度(m/s)，前为正"
+    },
+    "vy": {
+      "type": "number",
+      "minimum": -1.0,
+      "maximum": 1.0,
+      "description": "左右速度(m/s)，左为正"
+    },
+    "wz": {
+      "type": "number",
+      "minimum": -2.0,
+      "maximum": 2.0,
+      "description": "旋转速度(rad/s)"
+    }
+  },
+  "required": ["vx", "vy", "wz"]
+}

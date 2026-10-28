@@ -1,0 +1,16 @@
+{
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "description": "动作名称或ID，如 \"Shake hand\"、\"Sit down\" 或 \"514\""
+    },
+    "timeout": {
+      "type": "number",
+      "minimum": 1.0,
+      "maximum": 300.0,
+      "description": "最长等待时间(秒)，默认60"
+    }
+  },
+  "required": ["action"]
+}

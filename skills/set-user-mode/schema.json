@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "properties": {
+    "mode": {
+      "type": "string",
+      "enum": ["dance", "extreme", "kids", "long_endurance", "mute", "normal", "quiet"],
+      "description": "用户模式: normal普通/kids儿童/dance舞蹈/quiet安静/mute静音/extreme运动/long_endurance续航"
+    }
+  },
+  "required": ["mode"]
+}
