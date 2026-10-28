@@ -4,6 +4,7 @@
 发送原厂内置动作（坐下、趴下、跳跃、翻滚、握手、舞蹈等）。
 """
 import threading
+import time
 import uuid
 from dataclasses import dataclass
 from typing import Callable, List, Optional, Tuple
@@ -76,25 +77,41 @@ class FactoryActions:
             return self._goal_id is not None
 
     def get_available_actions(self, timeout: float = 5.0) -> List[FactoryAction]:
-        """获取机器人当前可用的原厂动作列表"""
+        """获取机器人当前可用的原厂动作列表
+
+        该话题为 latch 模式且只在动作引擎初始化/变化时发布：机器人启动初期
+        可能先发布仅含 EStop 的残缺列表，因此首个消息后保留一个静默窗口，
+        窗口内若收到更完整的列表则采用之。
+        """
+        start = time.time()
+        best = {}
+        last_change = [start]
         received = threading.Event()
-        holder = {}
 
         topic = roslibpy.Topic(self._client, self.AVAILABLE_TOPIC, self.AVAILABLE_TYPE)
 
         def callback(msg):
-            if not received.is_set():
-                holder['msg'] = msg
-                received.set()
+            n = len(msg.get('action_id', []))
+            with self._lock:
+                if n > best.get('n', 0):
+                    best['n'] = n
+                    best['msg'] = msg
+            last_change[0] = time.time()
+            received.set()
 
         topic.subscribe(callback)
         try:
             if not received.wait(timeout):
-                raise TimeoutError(f'获取动作列表超时 ({timeout}s)，话题 {self.AVAILABLE_TOPIC} 无数据')
+                raise TimeoutError(
+                    f'获取动作列表超时 ({timeout}s)，话题 {self.AVAILABLE_TOPIC} 无数据')
+            # 静默窗口：等待话题可能补发的更完整列表
+            while (time.time() - last_change[0] < 0.5
+                   and time.time() - start < timeout):
+                time.sleep(0.05)
         finally:
             topic.unsubscribe()
 
-        msg = holder['msg']
+        msg = best['msg']
         return [
             FactoryAction(action_id=int(aid), name=str(name))
             for aid, name in zip(msg.get('action_id', []), msg.get('action_name', []))

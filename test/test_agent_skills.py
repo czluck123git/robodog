@@ -204,10 +204,15 @@ def test_robot(host='192.168.101.215'):
     skills = AgentSkills.connect(host)
     print(f"   ✅ 已连接 {host}")
     import time
-    time.sleep(2)  # 等待状态订阅回流
+    time.sleep(3)  # 等待状态订阅回流（机器人刚启动时需更久）
 
     r = skills.call('get-robot-status')
-    check(r['success'], f"状态: standing={r['data']['standing']} z={r['data']['position']['z']:.2f} mode={r['data']['user_mode']}")
+    check(r['success'], f"状态: standing={r['data']['standing']} z={r['data']['position']['z']:.2f} mode={r['data']['user_mode']} state_valid={r['data']['state_valid']}")
+    if not r['data']['state_valid']:
+        print("   ⚠️ 状态数据尚未回流(state_valid=false)，机器人可能刚启动，等待5秒重试...")
+        time.sleep(5)
+        r = skills.call('get-robot-status')
+        print(f"   重试: standing={r['data']['standing']} z={r['data']['position']['z']:.2f} state_valid={r['data']['state_valid']}")
 
     r = skills.call('list-factory-actions')
     check(r['success'], f"可用动作 {len(r['data'])} 个: {[a['name'] for a in r['data']][:8]}...")
